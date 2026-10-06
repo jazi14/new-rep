@@ -1,0 +1,4 @@
+# One Shopify store domain per line. Lines starting with # are ignored.
+# Swap these examples for stores in your niche.
+www.allbirds.com
+kith.com

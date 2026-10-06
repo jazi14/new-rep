@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShopScout</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #667080; --line: #e3e6ea;
+    --accent: #2f6fde; --good: #1d8a4e; --warn: #b26a00; --bad: #c0392b; --chip: #eef2f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1e24; --text: #e6e8eb; --muted: #9aa3ad; --line: #2b3038;
+            --accent: #6aa0ff; --good: #4cc483; --warn: #e0a243; --bad: #ef6b5b; --chip: #242a33; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--text); }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: 290px 1fr; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  input, select, textarea, button { font: inherit; color: var(--text); background: var(--bg);
+           border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; }
+  textarea { min-height: 110px; font-family: ui-monospace, monospace; font-size: 12px; }
+  button { background: var(--accent); color: #fff; border: 0; cursor: pointer; margin-top: 10px; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 13px; margin: 6px 0; }
+  .check input { width: auto; }
+  #log { font: 11px/1.4 ui-monospace, monospace; color: var(--muted); max-height: 140px; overflow: auto; white-space: pre-wrap; margin-top: 8px; }
+  .stores { font-size: 12px; margin-top: 8px; }
+  .stores div { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); }
+  .err { color: var(--bad); }
+  .tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 1050px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+  th.num, td.num { text-align: right; }
+  th .arrow { color: var(--accent); }
+  td.prod { min-width: 260px; }
+  td img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; background: var(--chip); display: block; }
+  td a { color: var(--text); text-decoration: none; font-weight: 500; }
+  td a:hover { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; }
+  .chip { display: inline-block; background: var(--chip); border-radius: 10px; padding: 1px 7px; font-size: 11px; margin: 1px 2px 1px 0; white-space: nowrap; }
+  .score { font-weight: 700; font-size: 15px; }
+  .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  td input.cost { width: 70px; padding: 3px 5px; font-size: 12px; }
+  .summary { margin: 0 0 10px; color: var(--muted); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>ShopScout</h1>
+  <span class="meta" id="runmeta">No runs yet</span>
+</header>
+<main>
+  <aside>
+    <section class="panel">
+      <h2>Stores</h2>
+      <textarea id="storelist" placeholder="one Shopify domain per line"></textarea>
+      <button id="scrape">Scrape now</button>
+      <div class="stores" id="storestatus"></div>
+      <div id="log"></div>
+    </section>
+    <section class="panel">
+      <h2>Filters</h2>
+      <label for="q">Search title, vendor, tags</label>
+      <input id="q" type="search">
+      <label for="store">Store</label>
+      <select id="store"><option value="">All stores</option></select>
+      <label for="type">Product type</label>
+      <select id="type"><option value="">All types</option></select>
+      <div class="row2">
+        <div><label for="min_price">Min price</label><input id="min_price" type="number" min="0"></div>
+        <div><label for="max_price">Max price</label><input id="max_price" type="number" min="0"></div>
+      </div>
+      <label for="max_age">Published within (days)</label>
+      <input id="max_age" type="number" min="0" placeholder="any">
+      <label class="check"><input type="checkbox" id="bestsellers"> In a best-seller collection</label>
+      <label class="check"><input type="checkbox" id="in_stock"> In stock</label>
+      <label class="check"><input type="checkbox" id="on_sale"> On sale</label>
+      <label class="check"><input type="checkbox" id="has_cost"> Has my cost entered</label>
+      <label for="fee_pct">Selling fees, % of price (payment, platform)</label>
+      <input id="fee_pct" type="number" min="0" step="0.1" value="0">
+    </section>
+  </aside>
+  <section>
+    <p class="summary" id="summary"></p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr id="headrow"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+const COLS = [
+  {key: null, label: ""},
+  {key: "title", label: "Product"},
+  {key: "score", label: "Score", num: true},
+  {key: "price_min", label: "Price", num: true},
+  {key: "discount_pct", label: "Discount", num: true},
+  {key: "bestseller_rank", label: "Best-seller #", num: true, asc: true},
+  {key: "sold_out_since_last", label: "Sold out since last", num: true},
+  {key: "stock_pct", label: "In stock", num: true},
+  {key: "age_days", label: "Age (days)", num: true, asc: true},
+  {key: "price_change_pct", label: "Price chg", num: true},
+  {key: null, label: "My cost / ship"},
+  {key: "margin_pct", label: "Margin", num: true},
+];
+let sort = "score", dir = "desc", timer = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const thumb = u => { try { const x = new URL(u, location.href); x.searchParams.set("width", "88"); return x.href; } catch { return u; } };
+const money = v => v == null ? "" : "$" + v.toFixed(2);
+
+function drawHead() {
+  $("headrow").innerHTML = COLS.map(c => {
+    const arrow = c.key === sort ? `<span class="arrow">${dir === "desc" ? " ▼" : " ▲"}</span>` : "";
+    return `<th class="${c.num ? "num" : ""}" data-key="${c.key ?? ""}">${c.label}${arrow}</th>`;
+  }).join("");
+}
+$("headrow").addEventListener("click", e => {
+  const th = e.target.closest("th"); if (!th || !th.dataset.key) return;
+  const col = COLS.find(c => c.key === th.dataset.key);
+  if (sort === col.key) dir = dir === "desc" ? "asc" : "desc";
+  else { sort = col.key; dir = col.asc ? "asc" : "desc"; }
+  drawHead(); load();
+});
+
+function params() {
+  const p = new URLSearchParams({sort, dir});
+  for (const id of ["q", "store", "type", "min_price", "max_price", "max_age", "fee_pct"]) if ($(id).value) p.set(id, $(id).value);
+  for (const id of ["bestsellers", "in_stock", "on_sale", "has_cost"]) if ($(id).checked) p.set(id, "1");
+  return p;
+}
+
+function fillSelect(el, values) {
+  const cur = el.value, first = el.options[0].outerHTML;
+  el.innerHTML = first + values.map(v => `<option>${esc(v)}</option>`).join("");
+  el.value = values.includes(cur) ? cur : "";
+}
+
+const PART_LABEL = {bestseller: "best-seller", selling_out: "selling out", low_stock: "low stock", new: "new", margin: "margin"};
+
+function rowHtml(r) {
+  const parts = Object.entries(r.score_parts).map(([k, v]) => `<span class="chip">${PART_LABEL[k] || k} +${v}</span>`).join("");
+  const pr = r.price_min === r.price_max ? money(r.price_min) : `${money(r.price_min)}–${money(r.price_max)}`;
+  const stockCls = r.stock_pct === 0 ? "bad" : r.stock_pct <= 50 ? "warn" : "";
+  const chg = r.price_change_pct == null || r.price_change_pct === 0 ? "" :
+    `<span class="${r.price_change_pct > 0 ? "good" : "bad"}">${r.price_change_pct > 0 ? "+" : ""}${r.price_change_pct}%</span>`;
+  const margin = r.margin_pct == null ? "" :
+    `<span class="${r.margin_pct >= 40 ? "good" : r.margin_pct >= 20 ? "warn" : "bad"}">${r.margin_pct}%</span><div class="sub">${money(r.margin)}</div>`;
+  return `<tr>
+    <td>${r.image ? `<img loading="lazy" src="${esc(thumb(r.image))}" alt="">` : ""}</td>
+    <td class="prod"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+        <div class="sub">${esc(r.store)} · ${esc(r.product_type || "no type")} · ${esc(r.vendor)}</div></td>
+    <td class="num"><span class="score">${r.score}</span><div>${parts}</div></td>
+    <td class="num">${pr}${r.compare_at_max && r.discount_pct ? `<div class="sub"><s>${money(r.compare_at_max)}</s></div>` : ""}</td>
+    <td class="num">${r.discount_pct ? r.discount_pct + "%" : ""}</td>
+    <td class="num">${r.bestseller_rank ?? ""}</td>
+    <td class="num">${r.sold_out_since_last == null ? `<span class="sub">needs 2 runs</span>` : r.sold_out_since_last || ""}</td>
+    <td class="num"><span class="${stockCls}">${r.variants_available}/${r.variants}</span></td>
+    <td class="num">${r.age_days ?? ""}</td>
+    <td class="num">${chg}</td>
+    <td><input class="cost" type="number" step="0.01" min="0" placeholder="cost" value="${r.unit_cost ?? ""}" data-store="${esc(r.store)}" data-id="${r.product_id}" data-f="unit_cost">
+        <input class="cost" type="number" step="0.01" min="0" placeholder="ship" value="${r.shipping_cost ?? ""}" data-store="${esc(r.store)}" data-id="${r.product_id}" data-f="shipping_cost"></td>
+    <td class="num">${margin}</td>
+  </tr>`;
+}
+
+async function load() {
+  const res = await fetch("/api/products?" + params());
+  const data = await res.json();
+  fillSelect($("store"), data.facets.stores);
+  fillSelect($("type"), data.facets.types);
+  $("summary").textContent = `${data.total.toLocaleString()} products match` + (data.total > data.rows.length ? `, showing top ${data.rows.length}` : "");
+  $("rows").innerHTML = data.rows.length ? data.rows.map(rowHtml).join("") :
+    `<tr><td colspan="${COLS.length}" class="empty">No products yet. Add Shopify store domains on the left and click Scrape now.</td></tr>`;
+}
+
+$("rows").addEventListener("change", async e => {
+  const el = e.target; if (!el.classList.contains("cost")) return;
+  const tr = el.closest("tr");
+  const get = f => tr.querySelector(`[data-f="${f}"]`).value;
+  await fetch("/api/cost", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({store: el.dataset.store, product_id: el.dataset.id, unit_cost: get("unit_cost"), shipping_cost: get("shipping_cost")})});
+  load();
+});
+
+for (const id of ["q", "min_price", "max_price", "max_age", "fee_pct"])
+  $(id).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(load, 300); });
+for (const id of ["store", "type", "bestsellers", "in_stock", "on_sale", "has_cost"])
+  $(id).addEventListener("change", load);
+
+let wasRunning = false, storesLoaded = false;
+async function status() {
+  const s = await (await fetch("/api/status")).json();
+  if (!storesLoaded) { $("storelist").value = s.store_list.join("\n"); storesLoaded = true; }
+  $("scrape").disabled = s.running;
+  $("scrape").textContent = s.running ? "Scraping…" : "Scrape now";
+  $("log").textContent = s.log.join("\n");
+  $("log").scrollTop = 1e9;
+  $("storestatus").innerHTML = s.stores.map(st => `<div><span>${esc(st.domain)}</span>
+    <span class="${st.last_status === "error" ? "err" : "sub"}" title="${esc(st.last_error || "")}">
+    ${st.last_status === "error" ? "error" : (st.product_count ?? 0) + " items"}${st.bestseller_collection ? " · BS" : ""}</span></div>`).join("");
+  const done = s.runs.filter(r => r.finished_at);
+  $("runmeta").textContent = done.length ? `Run #${done[0].id} finished ${new Date(done[0].finished_at).toLocaleString()}` : "No runs yet";
+  if (wasRunning && !s.running) load();
+  wasRunning = s.running;
+  setTimeout(status, s.running ? 2000 : 10000);
+}
+
+$("scrape").addEventListener("click", async () => {
+  const stores = $("storelist").value.split("\n").map(s => s.trim()).filter(Boolean);
+  await fetch("/api/scrape", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({stores})});
+  wasRunning = true; status();
+});
+
+drawHead(); load(); status();
+</script>
+</body>
+</html>
