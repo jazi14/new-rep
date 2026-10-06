@@ -70,6 +70,13 @@
       <div id="log"></div>
     </section>
     <section class="panel">
+      <h2>eBay comparison</h2>
+      <label for="ebay_top">Check the top N products in the current view</label>
+      <input id="ebay_top" type="number" min="1" max="500" value="25">
+      <button id="ebay_go" disabled>Check on eBay</button>
+      <div class="sub" id="ebay_note" style="margin-top:6px"></div>
+    </section>
+    <section class="panel">
       <h2>Filters</h2>
       <label for="q">Search title, vendor, tags</label>
       <input id="q" type="search">
@@ -87,6 +94,7 @@
       <label class="check"><input type="checkbox" id="in_stock"> In stock</label>
       <label class="check"><input type="checkbox" id="on_sale"> On sale</label>
       <label class="check"><input type="checkbox" id="has_cost"> Has my cost entered</label>
+      <label class="check"><input type="checkbox" id="ebay_checked"> Checked on eBay</label>
       <label for="fee_pct">Selling fees, % of price (payment, platform)</label>
       <input id="fee_pct" type="number" min="0" step="0.1" value="0">
     </section>
@@ -113,6 +121,8 @@ const COLS = [
   {key: "stock_pct", label: "In stock", num: true},
   {key: "age_days", label: "Age (days)", num: true, asc: true},
   {key: "price_change_pct", label: "Price chg", num: true},
+  {key: "ebay_matched", label: "eBay listings", num: true, asc: true},
+  {key: "ebay_gap_pct", label: "eBay median vs price", num: true},
   {key: null, label: "My cost / ship"},
   {key: "margin_pct", label: "Margin", num: true},
 ];
@@ -139,7 +149,7 @@ $("headrow").addEventListener("click", e => {
 function params() {
   const p = new URLSearchParams({sort, dir});
   for (const id of ["q", "store", "type", "min_price", "max_price", "max_age", "fee_pct"]) if ($(id).value) p.set(id, $(id).value);
-  for (const id of ["bestsellers", "in_stock", "on_sale", "has_cost"]) if ($(id).checked) p.set(id, "1");
+  for (const id of ["bestsellers", "in_stock", "on_sale", "has_cost", "ebay_checked"]) if ($(id).checked) p.set(id, "1");
   return p;
 }
 
@@ -159,6 +169,12 @@ function rowHtml(r) {
     `<span class="${r.price_change_pct > 0 ? "good" : "bad"}">${r.price_change_pct > 0 ? "+" : ""}${r.price_change_pct}%</span>`;
   const margin = r.margin_pct == null ? "" :
     `<span class="${r.margin_pct >= 40 ? "good" : r.margin_pct >= 20 ? "warn" : "bad"}">${r.margin_pct}%</span><div class="sub">${money(r.margin)}</div>`;
+  const ebayList = r.ebay_checked_at == null ? "" :
+    `<span title="${esc("Searched: " + r.ebay_query)}">${r.ebay_matched}</span><div class="sub">${r.ebay_sellers} seller${r.ebay_sellers === 1 ? "" : "s"}</div>`;
+  const ebayGap = r.ebay_median == null ? "" :
+    `${money(r.ebay_median)}${r.ebay_includes_shipping ? "" : "*"}
+     <div class="sub">${r.ebay_gap_pct == null ? "" : `<span class="${r.ebay_gap_pct > 0 ? "good" : "bad"}">${r.ebay_gap_pct > 0 ? "+" : ""}${r.ebay_gap_pct}%</span>`}
+     ${r.ebay_cheapest_url ? ` · <a href="${esc(r.ebay_cheapest_url)}" target="_blank" rel="noopener">min ${money(r.ebay_min)}</a>` : ""}</div>`;
   return `<tr>
     <td>${r.image ? `<img loading="lazy" src="${esc(thumb(r.image))}" alt="">` : ""}</td>
     <td class="prod"><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
@@ -171,6 +187,8 @@ function rowHtml(r) {
     <td class="num"><span class="${stockCls}">${r.variants_available}/${r.variants}</span></td>
     <td class="num">${r.age_days ?? ""}</td>
     <td class="num">${chg}</td>
+    <td class="num">${ebayList}</td>
+    <td class="num">${ebayGap}</td>
     <td><input class="cost" type="number" step="0.01" min="0" placeholder="cost" value="${r.unit_cost ?? ""}" data-store="${esc(r.store)}" data-id="${r.product_id}" data-f="unit_cost">
         <input class="cost" type="number" step="0.01" min="0" placeholder="ship" value="${r.shipping_cost ?? ""}" data-store="${esc(r.store)}" data-id="${r.product_id}" data-f="shipping_cost"></td>
     <td class="num">${margin}</td>
@@ -198,14 +216,21 @@ $("rows").addEventListener("change", async e => {
 
 for (const id of ["q", "min_price", "max_price", "max_age", "fee_pct"])
   $(id).addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(load, 300); });
-for (const id of ["store", "type", "bestsellers", "in_stock", "on_sale", "has_cost"])
+for (const id of ["store", "type", "bestsellers", "in_stock", "on_sale", "has_cost", "ebay_checked"])
   $(id).addEventListener("change", load);
 
-let wasRunning = false, storesLoaded = false;
+let wasRunning = false, wasEbay = false, storesLoaded = false;
 async function status() {
   const s = await (await fetch("/api/status")).json();
   if (!storesLoaded) { $("storelist").value = s.store_list.join("\n"); storesLoaded = true; }
   $("scrape").disabled = s.running;
+  $("ebay_go").disabled = !s.ebay_enabled || s.ebay_running;
+  $("ebay_go").textContent = s.ebay_running ? "Checking eBay…" : "Check on eBay";
+  $("ebay_note").textContent = s.ebay_enabled
+    ? "New, buy-it-now listings whose titles match. Rechecks are skipped for 24h. * = price without shipping."
+    : "Off: set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET and restart the server.";
+  if (wasEbay && !s.ebay_running) load();
+  wasEbay = s.ebay_running;
   $("scrape").textContent = s.running ? "Scraping…" : "Scrape now";
   $("log").textContent = s.log.join("\n");
   $("log").scrollTop = 1e9;
@@ -216,13 +241,20 @@ async function status() {
   $("runmeta").textContent = done.length ? `Run #${done[0].id} finished ${new Date(done[0].finished_at).toLocaleString()}` : "No runs yet";
   if (wasRunning && !s.running) load();
   wasRunning = s.running;
-  setTimeout(status, s.running ? 2000 : 10000);
+  setTimeout(status, s.running || s.ebay_running ? 2000 : 10000);
 }
 
 $("scrape").addEventListener("click", async () => {
   const stores = $("storelist").value.split("\n").map(s => s.trim()).filter(Boolean);
   await fetch("/api/scrape", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({stores})});
   wasRunning = true; status();
+});
+
+$("ebay_go").addEventListener("click", async () => {
+  const res = await fetch("/api/ebay", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({top: Number($("ebay_top").value) || 25, filters: Object.fromEntries(params())})});
+  if (!res.ok) $("ebay_note").textContent = (await res.json()).error || "eBay check did not start";
+  wasEbay = true; status();
 });
 
 drawHead(); load(); status();

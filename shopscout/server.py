@@ -6,11 +6,11 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import db, scraper, signals
+from . import db, ebay, scraper, signals
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 SORT_KEYS = {"score", "price_min", "discount_pct", "age_days", "bestseller_rank", "sold_out_since_last",
-             "stock_pct", "margin_pct", "price_change_pct", "title", "store"}
+             "stock_pct", "margin_pct", "price_change_pct", "title", "store", "ebay_gap_pct", "ebay_matched"}
 
 
 class State:
@@ -19,6 +19,7 @@ class State:
         self.store_file = store_file
         self.log = deque(maxlen=200)
         self.running = False
+        self.ebay_running = False
         self.lock = threading.Lock()
 
     def start_scrape(self, domains):
@@ -34,6 +35,23 @@ class State:
                 self.log.append(f"Run crashed: {e!r}")
             finally:
                 self.running = False
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def start_ebay(self, products):
+        with self.lock:
+            if self.ebay_running:
+                return False
+            self.ebay_running = True
+
+        def work():
+            try:
+                ebay.check_products(self.conn, products, log=self.log.append)
+            except Exception as e:
+                self.log.append(f"[ebay] crashed: {e!r}")
+            finally:
+                self.ebay_running = False
 
         threading.Thread(target=work, daemon=True).start()
         return True
@@ -72,6 +90,8 @@ def filter_and_sort(rows, q):
         rows = [r for r in rows if r["discount_pct"]]
     if q.get("has_cost") == "1":
         rows = [r for r in rows if r["unit_cost"] is not None]
+    if q.get("ebay_checked") == "1":
+        rows = [r for r in rows if r["ebay_checked_at"]]
 
     key = q.get("sort") if q.get("sort") in SORT_KEYS else "score"
     desc = q.get("dir", "desc") == "desc"
@@ -116,7 +136,8 @@ def make_handler(state):
             if url.path == "/api/status":
                 stores = [dict(r) for r in state.conn.execute("SELECT * FROM stores ORDER BY domain")]
                 runs = [dict(r) for r in state.conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 5")]
-                return self._send(200, {"running": state.running, "log": list(state.log)[-30:],
+                return self._send(200, {"running": state.running, "ebay_running": state.ebay_running,
+                                        "ebay_enabled": ebay.configured(), "log": list(state.log)[-30:],
                                         "stores": stores, "runs": runs,
                                         "store_list": scraper.read_store_file(state.store_file)
                                         if os.path.exists(state.store_file) else []})
@@ -133,6 +154,14 @@ def make_handler(state):
                     f.write("\n".join(scraper.normalize_domain(d) for d in domains) + "\n")
                 ok = state.start_scrape(domains)
                 return self._send(202 if ok else 409, {"started": ok})
+            if path == "/api/ebay":
+                if not ebay.configured():
+                    return self._send(400, {"error": "set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET first"})
+                filters = {k: str(v) for k, v in (body.get("filters") or {}).items()}
+                top = max(1, min(int(body.get("top") or 25), 500))
+                rows = filter_and_sort(signals.products(state.conn), filters)[:top]
+                ok = state.start_ebay(rows)
+                return self._send(202 if ok else 409, {"started": ok, "products": len(rows)})
             if path == "/api/cost":
                 with db.write_lock():
                     state.conn.execute(

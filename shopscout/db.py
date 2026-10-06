@@ -55,6 +55,21 @@ CREATE TABLE IF NOT EXISTS costs (
     shipping_cost REAL,
     PRIMARY KEY (store, product_id)
 );
+CREATE TABLE IF NOT EXISTS ebay_checks (
+    store TEXT NOT NULL,
+    product_id INTEGER NOT NULL,
+    checked_at TEXT NOT NULL,
+    query TEXT,
+    total_results INTEGER,
+    matched INTEGER,
+    sellers INTEGER,
+    min_price REAL,
+    median_price REAL,
+    includes_shipping INTEGER,
+    currency TEXT,
+    cheapest_url TEXT,
+    PRIMARY KEY (store, product_id)
+);
 """
 
 _lock = threading.Lock()

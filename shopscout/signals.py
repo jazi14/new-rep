@@ -19,12 +19,16 @@ SELECT p.store, p.product_id, p.handle, p.title, p.vendor, p.product_type, p.tag
        cur.bestseller_rank, cur.n_snapshots, cur.run_id AS last_run,
        prev.variants_available AS prev_available, prev.price_min AS prev_price,
        first.price_min AS first_price,
-       c.unit_cost, c.shipping_cost
+       c.unit_cost, c.shipping_cost,
+       e.checked_at AS ebay_checked_at, e.query AS ebay_query, e.matched AS ebay_matched,
+       e.sellers AS ebay_sellers, e.min_price AS ebay_min, e.median_price AS ebay_median,
+       e.includes_shipping AS ebay_includes_shipping, e.cheapest_url AS ebay_cheapest_url
 FROM products p
 JOIN ranked cur   ON cur.store = p.store AND cur.product_id = p.product_id AND cur.rn_desc = 1
 LEFT JOIN ranked prev  ON prev.store = p.store AND prev.product_id = p.product_id AND prev.rn_desc = 2
 LEFT JOIN ranked first ON first.store = p.store AND first.product_id = p.product_id AND first.rn_asc = 1
 LEFT JOIN costs c ON c.store = p.store AND c.product_id = p.product_id
+LEFT JOIN ebay_checks e ON e.store = p.store AND e.product_id = p.product_id
 """
 
 
@@ -53,6 +57,8 @@ def compute(row, fee_pct=0.0):
     cmp = r["compare_at_max"]
     r["discount_pct"] = round((cmp - price) / cmp * 100, 1) if cmp and price and cmp > price else None
     r["price_change_pct"] = _pct(price, r["first_price"])
+    # Positive: the typical eBay listing is priced above this store.
+    r["ebay_gap_pct"] = _pct(r["ebay_median"], price)
     r["stock_pct"] = round(r["variants_available"] / r["variants"] * 100) if r["variants"] else None
     prev = r["prev_available"]
     r["sold_out_since_last"] = max(0, prev - r["variants_available"]) if prev is not None else None

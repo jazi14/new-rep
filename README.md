@@ -22,6 +22,42 @@ Data goes to `data/shopscout.db` (SQLite). Run a scrape once or twice a day, for
 0 8,20 * * * cd /path/to/new-rep && python3 -m shopscout scrape
 ```
 
+## eBay comparison (optional)
+
+Looks up your top-scoring products on eBay through the official Browse API and shows how many sellers list them and at what price. Without keys the eBay panel stays off and nothing else changes.
+
+1. Create a developer account at developer.ebay.com and a production keyset. When asked about Marketplace Account Deletion notifications, apply for the exemption (ShopScout stores no eBay user data).
+2. Set the keys as environment variables. Don't put them in any file in this repo.
+
+   ```bash
+   export EBAY_CLIENT_ID=...       # App ID (Client ID)
+   export EBAY_CLIENT_SECRET=...   # Cert ID (Client Secret)
+   # optional: EBAY_MARKETPLACE=EBAY_GB, EBAY_ENV=sandbox
+   ```
+3. Restart the dashboard and click **Check on eBay**. It checks the top N products in the current filtered view. Or from the command line:
+
+   ```bash
+   python3 -m shopscout ebay --top 25
+   ```
+
+How it works:
+
+- One search per product: brand + title with bracketed text removed, max 100 characters.
+- Only new, buy-it-now listings are searched.
+- A listing counts as a match when its title contains at least 60% of the search words. eBay's own total for the search is kept too, but it includes loose matches.
+- Price is item + cheapest shipping. If any matched listing has calculated (unknown) shipping, item price is used for all and the dashboard marks it with `*`.
+- "eBay median vs price" is the median matched eBay price relative to the Shopify price. Positive means eBay listings are priced higher.
+- Products checked in the last 24 hours are skipped (`--force` to recheck).
+- eBay data is shown but not part of the score.
+
+Title matching is approximate. Open the "min" link on a row to see what was matched before trusting the numbers.
+
+## Tests
+
+```bash
+python3 -m unittest discover tests
+```
+
 ## Where the data comes from
 
 | Source | Gives |
@@ -56,6 +92,7 @@ Score (heuristic, every part shown on the row):
 
 - Shopify stores only. Some stores block `/products.json` (403) or rate-limit (429); these show as errors in the Stores panel.
 - Shopify does not publish sales counts. Best-seller rank and sell-out tracking are proxies, not units sold.
+- eBay figures are active listings, not sold prices. For sold data use Terapeak (Seller Hub, Research) by hand.
 - Supplier cost is not scraped. Enter it yourself per product to get margin.
 - At most 10,000 products per store per run (`MAX_PAGES` in `shopscout/scraper.py`).
 - Check each store's terms of service before using its data commercially.
